@@ -1,4 +1,4 @@
-module github.com/ronanwatkins/platform-client-sdk-go/v45
+module github.com/ronanwatkins/platform-client-sdk-go/v46
 
 go 1.15
 
