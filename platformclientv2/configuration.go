@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/rjeczalik/notify"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"io/ioutil"
 	"net/http"
@@ -280,10 +280,41 @@ func getConfigInt(section, key string) int {
 }
 
 func (c *Configuration) periodicConfigUpdater() {
-	notificationChannel := make(chan notify.EventInfo, 1)
-	// Set up a watchpoint listening on events within the parent directory of the config file.
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer watcher.Close()
+
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				//log.Println("event:", event)
+				if event.Op&fsnotify.Write == fsnotify.Write ||
+					event.Op&fsnotify.Create == fsnotify.Create {
+						fmt.Println("event.Name", event.Name)
+						fmt.Println("c.ConfigFilePath", c.ConfigFilePath)
+						if event.Name == c.ConfigFilePath {
+							fmt.Println("modified file:", event.Name)
+						}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				fmt.Println("error:", err)
+			}
+		}
+	}()
+
 	watchedDirectory := filepath.Dir(c.ConfigFilePath)
-	err := notify.Watch(watchedDirectory+ "/...", notificationChannel, notify.Write)
+	err = watcher.Add(watchedDirectory)
+	fmt.Println(err)
 	// If an error is returned and the error indicates that the directory doesn't exist
 	// enter a loop and try to watch subsequent parent directories until an unrecoverable error is returned or no error is returned
 	if err != nil {
@@ -295,24 +326,12 @@ func (c *Configuration) periodicConfigUpdater() {
 			} else {
 				return
 			}
-			err = notify.Watch(watchedDirectory+ "/...", notificationChannel, notify.Write)
+			err = watcher.Add(watchedDirectory)
 		}
 	}
-	defer notify.Stop(notificationChannel)
-	
-	// Wait for events
-	for {
-		select {
-		case event := <-notificationChannel:
-			if !c.AutoReloadConfig {
-				return
-			}
-			// Only act on updates to the config file.
-			if event.Path() == c.ConfigFilePath {
-				_ = c.updateConfigFromFile()
-			}
-		}
-	}
+	fmt.Println("watching", watchedDirectory)
+
+	<-done
 }
 
 func getFileHash(filePath string) (string, error) {
