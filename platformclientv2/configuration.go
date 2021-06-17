@@ -282,7 +282,7 @@ func getConfigInt(section, key string) int {
 func (c *Configuration) periodicConfigUpdater() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		fmt.Println(err)
+		return
 	}
 	defer watcher.Close()
 
@@ -294,42 +294,31 @@ func (c *Configuration) periodicConfigUpdater() {
 				if !ok {
 					return
 				}
-				//log.Println("event:", event)
 				if event.Op&fsnotify.Write == fsnotify.Write ||
 					event.Op&fsnotify.Create == fsnotify.Create {
-						fmt.Println("event.Name", event.Name)
-						fmt.Println("c.ConfigFilePath", c.ConfigFilePath)
+						if !c.AutoReloadConfig {
+							return
+						}
+						// Only act on updates to the config file.
 						if event.Name == c.ConfigFilePath {
-							fmt.Println("modified file:", event.Name)
+							_ = c.updateConfigFromFile()
 						}
 				}
-			case err, ok := <-watcher.Errors:
+			case _, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				fmt.Println("error:", err)
 			}
 		}
 	}()
 
 	watchedDirectory := filepath.Dir(c.ConfigFilePath)
 	err = watcher.Add(watchedDirectory)
-	fmt.Println(err)
 	// If an error is returned and the error indicates that the directory doesn't exist
 	// enter a loop and try to watch subsequent parent directories until an unrecoverable error is returned or no error is returned
 	if err != nil {
-		for ok := true; ok; ok = err != nil {
-			errorType := strings.Split(err.Error(), " ")[0]
-			// This error indicates the directory doesn't exist
-			if errorType == "lstat" {
-				watchedDirectory = filepath.Dir(watchedDirectory)
-			} else {
-				return
-			}
-			err = watcher.Add(watchedDirectory)
-		}
+		return
 	}
-	fmt.Println("watching", watchedDirectory)
 
 	<-done
 }
